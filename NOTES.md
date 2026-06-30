@@ -216,7 +216,9 @@ picked up the job. HPA proven with `kubectl get hpa -w`.
       workflow, proved a worker pod executed it (Worker started/finished execution 1).
       Scaled workers 2->4->2. Installed + patched metrics-server (--kubelet-insecure-tls);
       HPA reads live CPU (cpu: 1%/50%, ScalingActive=True). n8n pinned to 2.27.5.
-- [ ] Phase 3: README polish (done in Phase 2), gitignore audit, gh repo create and push.
+- [x] Phase 3: strong README (both quickstarts, queue mode explained, troubleshooting),
+      em/en dash audit (clean), .gitignore audit (.env and k8s/02-secret.yaml ignored),
+      published public to https://github.com/SFX-TECH/n8n-selfhost-k8s with topics.
 
 ## 7. Decisions / gotchas worth keeping
 
