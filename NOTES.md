@@ -205,7 +205,9 @@ picked up the job. HPA proven with `kubectl get hpa -w`.
 ## 6. Open items / running log
 
 - [x] Phase 0: git init, pull current docs, sketch architecture (this file).
-- [ ] Phase 1: compose up, UI check, test workflow, restart persistence, Redis health.
+- [x] Phase 1: compose up (all healthy), owner setup + test workflow created,
+      proven to survive a full `docker compose down` + `up -d` recreate via
+      Postgres query, Redis PING -> PONG. n8n pinned to 2.27.5.
 - [ ] Phase 2: enable Docker Desktop Kubernetes, apply manifests, scale workers, prove pickup.
 - [ ] Phase 3: README, gitignore audit, gh repo create and push.
 
