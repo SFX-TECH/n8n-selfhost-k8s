@@ -1,0 +1,435 @@
+{
+  "name": "AI Support Triage",
+  "nodes": [
+    {
+      "id": "n-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n-generate",
+      "name": "Generate sample tickets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const schema = {\n  type: 'object',\n  properties: {\n    category: { type: 'string', enum: ['billing','technical','feature_request','how_to','account','other'] },\n    urgency: { type: 'string', enum: ['low','medium','high'] },\n    sentiment: { type: 'string', enum: ['positive','neutral','negative'] },\n    suggested_team: { type: 'string' },\n    draft_reply: { type: 'string' }\n  },\n  required: ['category','urgency','sentiment','suggested_team','draft_reply']\n};\nconst system = \"You are a customer support triage assistant. Read the support ticket and classify it. Choose the best category, an urgency of low, medium, or high, and a sentiment of positive, neutral, or negative. Suggest which team should handle it (for example billing, technical_support, product, or general_support). Then draft a short, professional first reply of two to three sentences. Use only the fields requested.\";\nconst tickets = [\n  { ticket_id: 'TCK-1001', subject: 'Charged twice this month', body: 'I was billed 49 dollars two times on my card for the same subscription. Please refund the duplicate charge, this is frustrating.' },\n  { ticket_id: 'TCK-1002', subject: 'Cancelling, the app keeps crashing', body: 'The app has crashed three times today and I lost my work. I am done, I want to cancel my plan and switch to a competitor.' },\n  { ticket_id: 'TCK-1003', subject: 'Idea: dark mode for reports', body: 'Love the product. It would be great if the reports dashboard had a dark mode option for late night work. Not urgent at all.' },\n  { ticket_id: 'TCK-1004', subject: 'How do I export to CSV', body: 'Quick question, where do I find the option to export my data to a CSV file? Thanks in advance.' }\n];\nreturn tickets.map(t => ({\n  json: {\n    ticket_id: t.ticket_id,\n    subject: t.subject,\n    body: t.body,\n    ollamaBody: {\n      model: 'qwen3:8b',\n      stream: false,\n      think: false,\n      options: { temperature: 0.1 },\n      messages: [\n        { role: 'system', content: system },\n        { role: 'user', content: 'Subject: ' + t.subject + '. Body: ' + t.body }\n      ],\n      format: schema\n    }\n  }\n}));"
+      }
+    },
+    {
+      "id": "n-http",
+      "name": "AI classify (Ollama qwen3:8b)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        180,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.ollamaBody) }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "n-parse",
+      "name": "Parse AI output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const tickets = $('Generate sample tickets').all();\nreturn $input.all().map((item, i) => {\n  let ai = {};\n  try { ai = JSON.parse(item.json.message.content); }\n  catch (e) { ai = { category:'other', urgency:'medium', sentiment:'neutral', suggested_team:'general_support', draft_reply:'Thanks for reaching out, we are looking into this and will follow up shortly.' }; }\n  const t = tickets[i].json;\n  return { json: {\n    ticket_id: t.ticket_id,\n    subject: t.subject,\n    body: t.body,\n    category: String(ai.category || 'other'),\n    urgency: String(ai.urgency || 'medium'),\n    sentiment: String(ai.sentiment || 'neutral'),\n    suggested_team: String(ai.suggested_team || 'general_support'),\n    draft_reply: String(ai.draft_reply || '')\n  }};\n});"
+      }
+    },
+    {
+      "id": "n-if",
+      "name": "Urgent or negative?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        620,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "or",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-urgency",
+              "leftValue": "={{ $json.urgency }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-sentiment",
+              "leftValue": "={{ $json.sentiment }}",
+              "rightValue": "negative",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-escalate",
+      "name": "Escalate now",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        860,
+        160
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-route-esc",
+              "name": "route",
+              "value": "escalate",
+              "type": "string"
+            },
+            {
+              "id": "set-status-esc",
+              "name": "status",
+              "value": "Escalated to on-call now",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "n-autodraft",
+      "name": "Auto-draft queued",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        860,
+        440
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-route-auto",
+              "name": "route",
+              "value": "auto_draft",
+              "type": "string"
+            },
+            {
+              "id": "set-status-auto",
+              "name": "status",
+              "value": "Reply drafted, queued for agent review",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "n-merge",
+      "name": "Merge Branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1080,
+        300
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      }
+    },
+    {
+      "id": "n-datatable",
+      "name": "Log to Data Table",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "support_triage_log",
+          "cachedResultName": "support_triage_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $json.ticket_id }}",
+            "subject": "={{ $json.subject }}",
+            "category": "={{ $json.category }}",
+            "urgency": "={{ $json.urgency }}",
+            "sentiment": "={{ $json.sentiment }}",
+            "suggested_team": "={{ $json.suggested_team }}",
+            "route": "={{ $json.route }}",
+            "status": "={{ $json.status }}",
+            "draft_reply": "={{ $json.draft_reply }}"
+          },
+          "schema": [
+            {
+              "id": "ticket_id",
+              "displayName": "ticket_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sentiment",
+              "displayName": "sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "suggested_team",
+              "displayName": "suggested_team",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "route",
+              "displayName": "route",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft_reply",
+              "displayName": "draft_reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "matchingColumns": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-summary",
+      "name": "Summary digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rows = $('Merge Branches').all().map(i => i.json);\nconst byUrgency = {};\nconst byTeam = {};\nlet escalated = 0;\nfor (const r of rows) {\n  byUrgency[r.urgency] = (byUrgency[r.urgency] || 0) + 1;\n  byTeam[r.suggested_team] = (byTeam[r.suggested_team] || 0) + 1;\n  if (r.route === 'escalate') escalated++;\n}\nconst fmt = (o) => Object.entries(o).map(([k,v]) => k + '=' + v).join(', ');\nconst digest = 'Triaged ' + rows.length + ' tickets. ' + escalated + ' escalated now. Urgency [' + fmt(byUrgency) + ']. Teams [' + fmt(byTeam) + '].';\nreturn [{ json: {\n  total_tickets: rows.length,\n  escalated_now: escalated,\n  by_urgency: byUrgency,\n  by_team: byTeam,\n  digest: digest\n}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate sample tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate sample tickets": {
+      "main": [
+        [
+          {
+            "node": "AI classify (Ollama qwen3:8b)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI classify (Ollama qwen3:8b)": {
+      "main": [
+        [
+          {
+            "node": "Parse AI output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI output": {
+      "main": [
+        [
+          {
+            "node": "Urgent or negative?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Urgent or negative?": {
+      "main": [
+        [
+          {
+            "node": "Escalate now",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auto-draft queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalate now": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-draft queued": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Branches": {
+      "main": [
+        [
+          {
+            "node": "Log to Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Data Table": {
+      "main": [
+        [
+          {
+            "node": "Summary digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

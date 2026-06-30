@@ -41,6 +41,27 @@ a horizontally scaled Kubernetes deployment.
 
 ---
 
+## Example workflow: AI Support Triage
+
+A real, runnable workflow built and executed on this stack. It reads a batch of
+incoming support tickets, uses a local AI model to classify each one (topic,
+urgency, customer mood, the owning team, and a drafted first reply), routes
+urgent or unhappy tickets to an escalation path and the rest to an auto-draft
+path, logs every result to a built-in n8n Data Table, and prints a digest. On
+the Kubernetes instance it runs in queue mode, so a worker pod executes it and
+calls the local model.
+
+![AI Support Triage running green on the self-hosted Kubernetes n8n](assets/workflow-support-triage-green.png)
+
+The AI step calls a local model through [Ollama](https://ollama.com) (verified
+with `qwen3:8b`) using structured JSON output, so no data leaves the machine and
+there are no external API keys. The full walkthrough, import steps, and the
+exportable workflow JSON are in
+[`examples/support-triage/`](examples/support-triage/), and a plain-English
+overview is in [the infographic](assets/infographic-support-triage.png).
+
+---
+
 ## Architecture
 
 ### Docker Compose (single host)
@@ -135,6 +156,9 @@ worker pods.
 │   ├── 09-ingress.yaml         # optional Ingress (needs ingress-nginx)
 │   ├── kustomization.yaml      # kubectl apply -k k8s/
 │   └── generate-secret.sh      # writes git-ignored 02-secret.yaml
+├── examples/
+│   └── support-triage/         # a real AI workflow you can import and run
+├── assets/                     # workflow screenshots and the infographic
 ├── docs/img/                   # screenshots used in this README
 ├── NOTES.md                    # engineering log and design decisions
 └── README.md
@@ -379,6 +403,10 @@ Both stacks are built and verified end to end:
 - **Kubernetes:** 5 pods Running with 0 restarts, a worker pod proven to execute a
   job (`Worker started/finished execution 1`), workers scaled 2 to 4, and the HPA
   reading live CPU.
+- **AI workflow:** a 10 node AI Support Triage workflow runs green on the
+  Kubernetes instance, executed by a worker pod calling a local Ollama model, with
+  four tickets classified, routed, and written to a Data Table. See
+  [`examples/support-triage/`](examples/support-triage/).
 - **CI:** GitHub Actions validates the compose file and the Kubernetes manifests
   on every push and pull request.
 
