@@ -1,0 +1,30 @@
+# Secrets and local environment (NEVER commit these)
+.env
+.env.*
+!.env.example
+*.secret
+*.secret.yaml
+k8s/02-secret.yaml
+secrets/
+*.key
+*.pem
+
+# Local Kubernetes secret renders
+k8s/*-secret.yaml
+!k8s/*-secret.example.yaml
+
+# Local data / persistent volume mounts
+data/
+pgdata/
+n8n_data/
+*.sqlite
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
