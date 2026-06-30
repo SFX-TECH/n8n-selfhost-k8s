@@ -1,6 +1,13 @@
 # Self-Hosting n8n: Docker Compose and Kubernetes (Queue Mode)
 
+> Self-host n8n the way a real team would: one command on Docker Compose, or queue mode on Kubernetes with workers that autoscale.
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 [![validate](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/validate.yml/badge.svg)](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/validate.yml)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-queue%20mode-3b5bdb?logo=kubernetes&logoColor=white)](k8s/)
+[![Docker Compose](https://img.shields.io/badge/Docker%20Compose-ready-000000?logo=docker&logoColor=white)](docker-compose.yml)
+[![Built with n8n](https://img.shields.io/badge/built%20with-n8n%202.27-7a5cff?logo=n8n&logoColor=white)](https://n8n.io)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Jesse%20Jolly-0a66c2?logo=linkedin&logoColor=white)](https://linkedin.com/in/jessegjolly)
 
 A hands-on reference for running [n8n](https://n8n.io) yourself, two ways:
 
@@ -65,35 +72,47 @@ flipped into queue mode with one flag (see [Queue mode in Compose](#optional-que
 
 ### Kubernetes (queue mode)
 
-```
-                         Kubernetes namespace: n8n
+```mermaid
+flowchart LR
+    U["Browser"]
 
-   browser
-     |  http://localhost:30678   (NodePort 30678)
-     v
-  +--------------------+        1. enqueue job       +-------------------+
-  |  n8n-main          |  ------------------------>  |   redis           |
-  |  Deployment (1)    |                             |   Deployment (1)  |
-  |  EXECUTIONS_MODE=  |                             |   Service :6379   |
-  |     queue          |                             +-------------------+
-  |  Service :5678     |                                      |
-  |  PVC /home/node    |                            2. worker pulls job
-  +--------------------+                                      v
-     ^      |                                   +-------------------------------+
-     |      | read/write                        |  n8n-worker  (Deployment)     |
-     |      v                                    |  args: n8n worker             |
-  +--------------------+   3. worker writes      |  +---------+  +---------+     |
-  |  postgres          |      results back       |  | worker1 |  | worker2 | ... |
-  |  StatefulSet (1)   |  <--------------------   |  +---------+  +---------+     |
-  |  PVC /var/lib/pg   |                          |  scaled by HorizontalPodAutoscaler |
-  |  Service :5432     |                          +-------------------------------+
-  +--------------------+
+    subgraph NS["Kubernetes namespace: n8n"]
+        M["n8n-main (Deployment x1)<br/>EXECUTIONS_MODE=queue<br/>UI, API, webhooks, triggers"]
+        R[("Redis<br/>job queue (Bull)")]
+        PG[("Postgres<br/>StatefulSet + PVC<br/>durable state")]
+        subgraph WK["n8n-worker Deployment (HPA: 2 to 5)"]
+            W1["worker"]
+            W2["worker"]
+            W3["worker ..."]
+        end
+    end
+
+    U -->|"NodePort 30678"| M
+    M -->|"1. enqueue job"| R
+    R -->|"2. workers pull jobs"| WK
+    WK -->|"3. write results"| PG
+    M <-->|"read and write"| PG
 ```
 
 The main process owns the UI, REST API, webhooks, and schedule triggers. It does
 not run executions itself; it enqueues them to Redis. Worker pods pull jobs off
 Redis, run them, and write results to Postgres. Scaling executions means scaling
 worker pods.
+
+---
+
+## Tech
+
+| Layer | Stack |
+|---|---|
+| Automation | n8n 2.27.5, self-hosted |
+| Database | PostgreSQL 16 (durable state, required for queue mode) |
+| Queue and broker | Redis 7 (Bull queue) |
+| Single host | Docker Compose v2, health checks, ordered startup, named volumes |
+| Orchestration | Kubernetes 1.34 (Deployments, StatefulSet, Services, NodePort, optional Ingress) |
+| Scaling | n8n queue mode: main plus autoscaled workers via a HorizontalPodAutoscaler (2 to 5) |
+| Config and secrets | ConfigMap plus a locally generated Secret (never committed) |
+| CI | GitHub Actions: docker compose config, yamllint, kubeconform |
 
 ---
 
@@ -239,6 +258,10 @@ kubectl config current-context     # should print: docker-desktop
 
 Deploy:
 
+> Caveat: run `./k8s/generate-secret.sh` before `kubectl apply -k k8s/`. The
+> kustomization references `02-secret.yaml`, which the script generates locally
+> and which is git-ignored, so the apply fails if you skip this step.
+
 ```bash
 # 1. Generate the Secret locally (writes git-ignored k8s/02-secret.yaml)
 ./k8s/generate-secret.sh
@@ -294,11 +317,12 @@ kubectl get pods -n n8n -l app=n8n-worker
 ```
 
 Or let the HorizontalPodAutoscaler do it (min 2, max 5, target 50 percent CPU).
-The HPA needs metrics-server, which Docker Desktop does not ship. Install it and
-patch it for Docker Desktop's self-signed kubelet certificate:
+The HPA needs metrics-server, which Docker Desktop does not ship. Install it
+(pinned to v0.8.1 for reproducibility rather than `latest`) and patch it for
+Docker Desktop's self-signed kubelet certificate:
 
 ```bash
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml
 kubectl patch deployment metrics-server -n kube-system --type='json' \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 kubectl rollout status deployment metrics-server -n kube-system
@@ -346,6 +370,20 @@ kubectl delete namespace n8n        # removes everything, including PVC data
 
 ---
 
+## Status
+
+Both stacks are built and verified end to end:
+
+- **Docker Compose:** all services healthy, a test workflow created and proven to
+  survive a full `docker compose down` and `up -d` recreate, Redis returns PONG.
+- **Kubernetes:** 5 pods Running with 0 restarts, a worker pod proven to execute a
+  job (`Worker started/finished execution 1`), workers scaled 2 to 4, and the HPA
+  reading live CPU.
+- **CI:** GitHub Actions validates the compose file and the Kubernetes manifests
+  on every push and pull request.
+
+---
+
 ## Security and secrets
 
 - `.env` and the rendered Kubernetes Secret (`k8s/02-secret.yaml`) are git-ignored.
@@ -361,3 +399,7 @@ kubectl delete namespace n8n        # removes everything, including PVC data
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+Built by **Jesse Jolly** · [SFX Tech Innovation](https://sfxtechinnovation.com) · [LinkedIn](https://linkedin.com/in/jessegjolly)
