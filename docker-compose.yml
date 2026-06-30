@@ -66,8 +66,6 @@ services:
       EXECUTIONS_MODE: ${EXECUTIONS_MODE:-regular}
       QUEUE_BULL_REDIS_HOST: redis
       QUEUE_BULL_REDIS_PORT: 6379
-      # --- Task runners (current recommended default) ---
-      N8N_RUNNERS_ENABLED: "true"
       # --- Host / access ---
       N8N_HOST: ${N8N_HOST:-localhost}
       N8N_PORT: 5678
@@ -116,7 +114,6 @@ services:
       QUEUE_BULL_REDIS_HOST: redis
       QUEUE_BULL_REDIS_PORT: 6379
       QUEUE_HEALTH_CHECK_ACTIVE: "true"
-      N8N_RUNNERS_ENABLED: "true"
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Etc/UTC}
       TZ: ${TZ:-Etc/UTC}
     networks:

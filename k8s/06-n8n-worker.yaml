@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n-worker
+  namespace: n8n
+  labels:
+    app: n8n-worker
+    component: worker
+    app.kubernetes.io/part-of: n8n-selfhost
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: n8n-worker
+  template:
+    metadata:
+      labels:
+        app: n8n-worker
+        component: worker
+    spec:
+      securityContext:
+        fsGroup: 1000
+      # Workers must not start until the main process has finished running database
+      # migrations. If main and workers race the initial migrations on an empty
+      # database, the migration state gets corrupted. This gate waits for the main
+      # n8n /healthz to return 200 (which only happens after migrations complete).
+      initContainers:
+        - name: wait-for-main
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "waiting for n8n main to finish migrations..."
+              until wget -q -O- http://n8n:5678/healthz >/dev/null 2>&1; do
+                sleep 3
+              done
+              echo "n8n main is ready"
+      containers:
+        - name: n8n-worker
+          image: docker.n8n.io/n8nio/n8n:2.27.5
+          # The image entrypoint runs `n8n <args>`, so this becomes `n8n worker`.
+          args: ["worker", "--concurrency=5"]
+          ports:
+            - name: http
+              containerPort: 5678
+          envFrom:
+            - configMapRef:
+                name: n8n-config
+            - secretRef:
+                name: n8n-secret
+          volumeMounts:
+            # Workers are stateless (state is in Postgres). A per-pod emptyDir is
+            # enough for the n8n home directory.
+            - name: n8n-data
+              mountPath: /home/node/.n8n
+          # QUEUE_HEALTH_CHECK_ACTIVE=true (from the ConfigMap) serves /healthz.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            failureThreshold: 6
+          # Requests are required for the HPA to compute CPU utilization.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 320Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: n8n-data
+          emptyDir: {}

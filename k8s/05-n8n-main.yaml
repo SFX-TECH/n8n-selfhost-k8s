@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-data
+  namespace: n8n
+  labels:
+    app: n8n-main
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n-main
+  namespace: n8n
+  labels:
+    app: n8n-main
+    component: main
+    app.kubernetes.io/part-of: n8n-selfhost
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the PVC is ReadWriteOnce (single writer).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: n8n-main
+  template:
+    metadata:
+      labels:
+        app: n8n-main
+        component: main
+    spec:
+      # The n8n image runs as uid 1000 (node). fsGroup makes the mounted volume
+      # group-writable by that user.
+      securityContext:
+        fsGroup: 1000
+      # Wait for Postgres DNS + port before starting, so the first boot does not
+      # crash on "getaddrinfo EAI_AGAIN postgres" before the Service is resolvable.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U n8n; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+      containers:
+        - name: n8n
+          image: docker.n8n.io/n8nio/n8n:2.27.5
+          ports:
+            - name: http
+              containerPort: 5678
+          envFrom:
+            - configMapRef:
+                name: n8n-config
+            - secretRef:
+                name: n8n-secret
+          volumeMounts:
+            - name: n8n-data
+              mountPath: /home/node/.n8n
+          # First start runs DB migrations, which can take a while: a generous
+          # startupProbe gates liveness so the pod is not killed mid-migration.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 150m
+              memory: 320Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: n8n-data
+          persistentVolumeClaim:
+            claimName: n8n-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n
+  namespace: n8n
+  labels:
+    app: n8n-main
+spec:
+  selector:
+    app: n8n-main
+  ports:
+    - name: http
+      port: 5678
+      targetPort: 5678

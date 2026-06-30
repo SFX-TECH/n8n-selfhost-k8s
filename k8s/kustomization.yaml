@@ -1,0 +1,17 @@
+# Apply the whole stack with:  kubectl apply -k k8s/
+# Generate the Secret first:    ./k8s/generate-secret.sh
+#
+# The optional Ingress (09-ingress.yaml) and the Secret example are intentionally
+# not listed here. Apply the Ingress separately if you install ingress-nginx.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-secret.yaml
+  - 03-postgres.yaml
+  - 04-redis.yaml
+  - 05-n8n-main.yaml
+  - 06-n8n-worker.yaml
+  - 07-n8n-worker-hpa.yaml
+  - 08-n8n-nodeport.yaml

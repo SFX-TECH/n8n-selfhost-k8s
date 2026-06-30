@@ -208,8 +208,26 @@ picked up the job. HPA proven with `kubectl get hpa -w`.
 - [x] Phase 1: compose up (all healthy), owner setup + test workflow created,
       proven to survive a full `docker compose down` + `up -d` recreate via
       Postgres query, Redis PING -> PONG. n8n pinned to 2.27.5.
-- [ ] Phase 2: enable Docker Desktop Kubernetes, apply manifests, scale workers, prove pickup.
-- [ ] Phase 3: README, gitignore audit, gh repo create and push.
+- [x] Phase 2: Docker Desktop Kubernetes was already enabled (context docker-desktop,
+      node Ready). Applied all manifests with `kubectl apply -k k8s/`. Hit and fixed
+      a migration race (main vs workers on empty DB) with a worker initContainer that
+      waits for the main /healthz; added a wait-for-postgres initContainer to main to
+      avoid a first-boot DNS restart. All 5 pods Running with 0 restarts. Ran a test
+      workflow, proved a worker pod executed it (Worker started/finished execution 1).
+      Scaled workers 2->4->2. Installed + patched metrics-server (--kubelet-insecure-tls);
+      HPA reads live CPU (cpu: 1%/50%, ScalingActive=True). n8n pinned to 2.27.5.
+- [ ] Phase 3: README polish (done in Phase 2), gitignore audit, gh repo create and push.
+
+## 7. Decisions / gotchas worth keeping
+
+- n8n is on 2.x (2.27.5). N8N_BASIC_AUTH_* is gone (user management instead).
+  N8N_RUNNERS_ENABLED is deprecated in 2.x (runners always on); removed it.
+- Queue-mode migration race is the big one: workers must not run initial
+  migrations concurrently with main. Gate workers on main /healthz.
+- OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true makes manual UI runs land on a worker,
+  which is what makes the worker-pickup proof deterministic.
+- Docker Desktop has no ingress controller and no metrics-server by default.
+  NodePort 30678 is the default UI path; metrics-server needs --kubelet-insecure-tls.
 
 Note: the agentic-harness plugin (/block-0-auditor, /phase-gate-check) is not
 available in this environment, so each phase is verified manually instead.
