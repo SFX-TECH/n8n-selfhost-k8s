@@ -1,5 +1,7 @@
 # Self-Hosting n8n: Docker Compose and Kubernetes (Queue Mode)
 
+[![validate](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/validate.yml/badge.svg)](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/validate.yml)
+
 A hands-on reference for running [n8n](https://n8n.io) yourself, two ways:
 
 1. **Docker Compose** for a single host: n8n + Postgres + Redis.

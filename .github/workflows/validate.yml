@@ -1,0 +1,55 @@
+name: validate
+
+# Validate the stack on every push and pull request:
+#   1. lint docker-compose.yml with `docker compose config`
+#   2. yamllint the Kubernetes manifests
+#   3. kubeconform the Kubernetes manifests against the k8s schemas
+# Fast and dependency-light. No cluster is created.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Lint and validate stack
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Lint docker-compose.yml
+        # Use .env.example for interpolation so no real .env is needed.
+        run: |
+          docker compose --env-file .env.example config --quiet
+          echo "docker compose config: OK"
+
+      - name: Install yamllint
+        run: pipx install yamllint
+
+      - name: yamllint k8s manifests
+        run: yamllint -c .yamllint k8s/
+
+      - name: Install kubeconform v0.8.0
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz \
+            | tar -xz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+          kubeconform -v
+
+      - name: kubeconform validate k8s manifests
+        # The real Secret (k8s/02-secret.yaml) is git-ignored and absent in CI;
+        # the committed 02-secret.example.yaml is validated instead.
+        # kustomization.yaml is a kustomize config, not a k8s API resource, so skip it.
+        run: |
+          kubeconform -strict -summary -verbose \
+            -kubernetes-version 1.31.0 \
+            -ignore-filename-pattern 'kustomization.yaml' \
+            k8s/

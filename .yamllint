@@ -1,0 +1,16 @@
+# yamllint config tuned for Kubernetes manifests.
+# Relaxes a few defaults that are noisy for k8s YAML, keeps the useful checks.
+extends: default
+
+rules:
+  # k8s manifests do not start every file with ---
+  document-start: disable
+  comments-indentation: disable
+  line-length:
+    max: 140
+    level: warning
+  # "true"/"false" are quoted strings for env values; do not flag keys
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
