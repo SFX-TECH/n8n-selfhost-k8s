@@ -11,9 +11,9 @@
 
 A hands-on reference for running [n8n](https://n8n.io) yourself, two ways:
 
-1. **Docker Compose** for a single host: n8n + Postgres + Redis.
-2. **Kubernetes** for production-style scaling: n8n in **queue mode** with a main
-   process, a pool of autoscaled worker pods, Redis as the job queue, and
+1. **Docker Compose** for a single host: n8n + Postgres + Redis (an in-memory data store, used here as the job queue).
+2. **Kubernetes** for production-style scaling: n8n in **queue mode** (the main app hands each job to a pool of helper processes instead of running everything itself) with a main
+   process, a pool of autoscaled worker pods (the helper copies of n8n that actually run the workflows), Redis as the job queue, and
    Postgres for durable state.
 
 The repo is intentionally generic and secret-free. It exists to show the moving
@@ -24,16 +24,20 @@ a horizontally scaled Kubernetes deployment.
 > Desktop's built-in Kubernetes (v1.34). Docs were pulled from the current
 > official n8n documentation rather than from memory.
 
+> **In plain terms:** n8n is a tool for building automations by connecting apps and steps, like a flowchart that runs on a schedule or a trigger. This project shows two ways to run n8n on your own machines instead of paying for a hosted service: a simple one-computer setup, and a larger setup that shares the work across many helpers so it keeps up when there is a lot to do.
+
 ---
 
 ## What this demonstrates
+
+> **In plain terms:** A quick list of what the project proves it can do, from keeping your saved work safe when programs restart, to handling more jobs by adding more helpers, to keeping passwords and keys out of the shared code.
 
 - Multi-service Docker Compose with health checks and ordered startup.
 - Durable state: workflows and credentials live in Postgres and survive a full
   container teardown and recreate.
 - Queue mode on Kubernetes: a main/worker split, Redis as the broker, an
-  initContainer ordering gate so workers do not race the main on database
-  migrations, health probes wired to n8n's `/healthz`, and a HorizontalPodAutoscaler.
+  initContainer (a small setup step that runs and finishes before the main container starts) ordering gate so workers do not race the main on database
+  migrations (one-time updates that create or upgrade the database structure), health probes wired to n8n's `/healthz`, and a HorizontalPodAutoscaler (adds or removes worker pods automatically as load changes).
 - Proof, not just config: a workflow executed and the worker pod logs show the
   worker picking up the job.
 - Secret hygiene: the encryption key and database password are generated locally
@@ -42,6 +46,8 @@ a horizontally scaled Kubernetes deployment.
 ---
 
 ## Example workflow: AI Support Triage
+
+> **In plain terms:** A working example you can try. It reads a batch of support tickets, uses an AI model running on your own computer to sort and label each one, sends the urgent ones down one path and the rest down another, and records what it did. Nothing is sent to an outside company.
 
 A real, runnable workflow built and executed on this stack. It reads a batch of
 incoming support tickets, uses a local AI model to classify each one (topic,
@@ -64,7 +70,11 @@ overview is in [the infographic](assets/infographic-support-triage.png).
 
 ## Architecture
 
+> **In plain terms:** These pictures show how the parts fit together and talk to each other, first for the simple one-computer setup and then for the larger setup that can add and remove helpers on its own.
+
 ### Docker Compose (single host)
+
+> **In plain terms:** Everything runs on one computer as a few small linked programs: the n8n app, a database that stores your work, and Redis standing by to hand out jobs.
 
 ```
                        Host: localhost
@@ -92,6 +102,8 @@ health checked so the topology matches the Kubernetes phase, and Compose can be
 flipped into queue mode with one flag (see [Queue mode in Compose](#optional-queue-mode-in-compose)).
 
 ### Kubernetes (queue mode)
+
+> **In plain terms:** The same parts run across a cluster of machines. One main copy of n8n takes requests and hands each job to a changing pool of helpers, who do the work and save the results to the database.
 
 ```mermaid
 flowchart LR
@@ -124,6 +136,8 @@ worker pods.
 
 ## Tech
 
+> **In plain terms:** The exact tools and version numbers used, so an engineer can see what is under the hood at a glance.
+
 | Layer | Stack |
 |---|---|
 | Automation | n8n 2.27.5, self-hosted |
@@ -138,6 +152,8 @@ worker pods.
 ---
 
 ## Repo layout
+
+> **In plain terms:** A map of the files and folders in this project and what each one is for.
 
 ```
 .
@@ -168,6 +184,8 @@ worker pods.
 
 ## What is queue mode, and why workers + Redis?
 
+> **In plain terms:** A deeper explanation of the main idea. Instead of one program doing everything, the work is split so the screen stays quick to use while a changing number of helpers work through the jobs in the background.
+
 By default n8n runs in **regular mode**: a single process handles the UI, the
 API, triggers, and it also runs every workflow execution. That is fine for one
 host and light load, but executions and the UI compete for the same CPU, and you
@@ -195,7 +213,8 @@ Why this matters:
 
 Two requirements that trip people up, both handled in this repo:
 
-- The `N8N_ENCRYPTION_KEY` must be **identical** on the main process and every
+- The `N8N_ENCRYPTION_KEY` (the encryption key, the secret n8n uses to lock and
+  unlock saved credentials) must be **identical** on the main process and every
   worker, or workers cannot decrypt stored credentials. Here every pod reads the
   same Kubernetes Secret, so this is automatic.
 - On a fresh database, the main process must run schema **migrations before** any
@@ -206,6 +225,8 @@ Two requirements that trip people up, both handled in this repo:
 ---
 
 ## Quickstart: Docker Compose
+
+> **In plain terms:** Copy and paste these steps to get the simple one-computer version running, then open it in your browser.
 
 **Prerequisites:** Docker Desktop (or Docker Engine) with Compose v2.
 
@@ -242,6 +263,8 @@ docker compose down -v                      # ALSO delete volumes (wipes data)
 
 ### Proving persistence (Postgres)
 
+> **In plain terms:** A short test that shows your saved work stays put even after you delete and rebuild the running programs, because it lives in the database, not inside the app.
+
 The point of using Postgres is that workflows and credentials do not live inside
 the n8n container. To prove it, create a workflow, destroy the containers,
 recreate them, and confirm the workflow is still there.
@@ -260,6 +283,8 @@ the `pg_data` volume, not the container:
 
 ### Optional: queue mode in Compose
 
+> **In plain terms:** If you want, the one-computer setup can also use the split-work approach with a dedicated helper, matching the larger setup.
+
 Compose can also run queue mode with a dedicated worker, mirroring Kubernetes.
 Set `EXECUTIONS_MODE=queue` in `.env`, then start with the `queue` profile:
 
@@ -271,6 +296,8 @@ docker compose logs -f n8n-worker
 ---
 
 ## Quickstart: Kubernetes (queue mode)
+
+> **In plain terms:** Copy and paste these steps to run the larger, many-helper version on a Kubernetes cluster on your own computer.
 
 **Prerequisites:** a Kubernetes cluster and `kubectl`. This was verified on Docker
 Desktop's built-in Kubernetes. Enable it in Docker Desktop under
@@ -313,6 +340,8 @@ kubectl logs -n n8n -l app=n8n-worker --prefix -f
 
 ### Proving a worker ran the execution
 
+> **In plain terms:** A check that confirms a helper, not the main app, actually ran your workflow, shown right in the helper's own log.
+
 The ConfigMap sets `OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true`, so even a manual
 "Execute workflow" click is sent to a worker. Create a small workflow, run it,
 then read the worker logs:
@@ -331,6 +360,8 @@ Observed output (the worker pod picked up and finished the job):
 ![n8n workflow executed successfully on Kubernetes](docs/img/n8n-k8s-execution.png)
 
 ### Scaling the workers
+
+> **In plain terms:** How to add more helpers by hand, or let the cluster add and remove them for you as the load goes up and down.
 
 Scale manually:
 
@@ -358,6 +389,8 @@ kubectl top pods -n n8n
 
 ### Optional: Ingress instead of NodePort
 
+> **In plain terms:** An optional, friendlier web address for reaching the app in your browser.
+
 The NodePort (08) is the default, zero-dependency way in. To use an Ingress
 instead, install ingress-nginx, then apply `k8s/09-ingress.yaml` and browse to
 http://n8n.localhost:
@@ -369,6 +402,8 @@ kubectl apply -f k8s/09-ingress.yaml
 
 ### Teardown
 
+> **In plain terms:** The single command that removes everything you created, including the stored data.
+
 ```bash
 kubectl delete namespace n8n        # removes everything, including PVC data
 ```
@@ -376,6 +411,8 @@ kubectl delete namespace n8n        # removes everything, including PVC data
 ---
 
 ## Troubleshooting
+
+> **In plain terms:** Common problems people run into, and how this project already prevents them or how to fix them.
 
 - **Worker pods CrashLoopBackOff with "relation ... already exists".** The main and
   workers raced the initial migrations. This repo prevents it with the worker
@@ -396,6 +433,8 @@ kubectl delete namespace n8n        # removes everything, including PVC data
 
 ## Status
 
+> **In plain terms:** A summary of what has been built and tested, with the concrete results.
+
 Both stacks are built and verified end to end:
 
 - **Docker Compose:** all services healthy, a test workflow created and proven to
@@ -413,6 +452,8 @@ Both stacks are built and verified end to end:
 ---
 
 ## Security and secrets
+
+> **In plain terms:** How passwords and keys are kept out of the shared code, and a clear statement that no real customer data is included.
 
 - `.env` and the rendered Kubernetes Secret (`k8s/02-secret.yaml`) are git-ignored.
   Only `.example` files are committed. Run `git status` before committing to confirm.
