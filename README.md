@@ -68,6 +68,29 @@ overview is in [the infographic](assets/infographic-support-triage.png).
 
 ---
 
+## Example workflow: AI Email Triage (local model)
+
+> **In plain terms:** A second working example. It reads a batch of emails, uses an AI model running on your own computer to decide what each one is (support, a sales lead, a recruiter, a newsletter, or personal), and files it under the right label. Newsletters get marked read, and anything the model is unsure about is left alone for a human. Nothing is sent to an outside company.
+
+A runnable workflow that triages an inbox with a local AI model. It reads the
+sender, subject, and preview of each message, classifies it into one of five
+categories, and routes it: mail that earns a label goes down a "label it" path,
+and the rest is left in the inbox for review. The interesting part is the safety
+layer. Instead of trusting the model, a decision step enforces two deterministic
+guardrails, so transactional mail like invoices is never treated as a newsletter,
+and low-confidence guesses fall back to a safe bucket rather than acting on a hunch.
+
+![The AI Email Triage flow, verified running green on the self-hosted n8n](assets/workflow-email-triage-green.png)
+
+The sample inbox is fake and generic, so the example runs green with no mailbox
+connection and no data. It is the data-free version of a private inbox assistant;
+the full walkthrough, the guardrail explanation, the import steps, and the steps
+to point it at a real Gmail account are in
+[`examples/email-triage/`](examples/email-triage/), and a plain-English overview is
+in [the infographic](assets/infographic-email-triage.png).
+
+---
+
 ## Architecture
 
 > **In plain terms:** These pictures show how the parts fit together and talk to each other, first for the simple one-computer setup and then for the larger setup that can add and remove helpers on its own.
@@ -173,7 +196,8 @@ worker pods.
 │   ├── kustomization.yaml      # kubectl apply -k k8s/
 │   └── generate-secret.sh      # writes git-ignored 02-secret.yaml
 ├── examples/
-│   └── support-triage/         # a real AI workflow you can import and run
+│   ├── support-triage/         # a real AI workflow you can import and run
+│   └── email-triage/           # a local-AI inbox sorter with safety guardrails
 ├── assets/                     # workflow screenshots and the infographic
 ├── docs/img/                   # screenshots used in this README
 ├── NOTES.md                    # engineering log and design decisions
@@ -442,10 +466,13 @@ Both stacks are built and verified end to end:
 - **Kubernetes:** 5 pods Running with 0 restarts, a worker pod proven to execute a
   job (`Worker started/finished execution 1`), workers scaled 2 to 4, and the HPA
   reading live CPU.
-- **AI workflow:** a 10 node AI Support Triage workflow runs green on the
+- **AI workflows:** a 10 node AI Support Triage workflow runs green on the
   Kubernetes instance, executed by a worker pod calling a local Ollama model, with
-  four tickets classified, routed, and written to a Data Table. See
-  [`examples/support-triage/`](examples/support-triage/).
+  four tickets classified, routed, and written to a Data Table
+  ([`examples/support-triage/`](examples/support-triage/)). A second workflow, AI
+  Email Triage, sorts an inbox with the same local model and adds deterministic
+  safety guardrails so a wrong guess never takes the wrong action
+  ([`examples/email-triage/`](examples/email-triage/)).
 - **CI:** GitHub Actions validates the compose file and the Kubernetes manifests
   on every push and pull request.
 

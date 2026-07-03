@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 640px; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+    background: linear-gradient(160deg, #f7f8fc 0%, #e9ecf6 100%);
+    color: #1f2430; padding: 40px 48px; display: flex; flex-direction: column;
+  }
+  .eyebrow { font-size: 16px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #7a5cff; }
+  h1 { font-size: 40px; font-weight: 800; letter-spacing: -0.5px; margin-top: 6px; }
+  .h1 small { font-size: 22px; font-weight: 600; color: #5b6170; margin-left: 12px; letter-spacing: 0; }
+  .pipe { margin-top: 30px; flex: 1; display: flex; align-items: center; gap: 14px; }
+  .card {
+    background: #fff; border-radius: 16px; box-shadow: 0 8px 22px rgba(31,36,48,0.09);
+    border-top: 7px solid var(--c); padding: 18px 20px; width: 230px; align-self: stretch;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .card .ic { font-size: 40px; }
+  .card h2 { font-size: 22px; font-weight: 750; margin-top: 8px; }
+  .card p { font-size: 16px; color: #5b6170; margin-top: 5px; line-height: 1.3; }
+  .card .count { display:inline-block; margin-top:10px; font-size:14px; font-weight:800; padding:4px 11px; border-radius:999px; background: var(--c); color:#fff; }
+  .arrow { color: #b0b6c8; font-size: 30px; font-weight: 700; flex: none; }
+  .branch { display: flex; flex-direction: column; gap: 14px; }
+  .branch .card { width: 250px; align-self: auto; }
+  .mini { padding: 14px 18px; }
+  .mini h2 { font-size: 20px; }
+  .strip {
+    margin-top: 26px; background: #14351f; border-radius: 14px; padding: 16px 24px;
+    display: flex; align-items: center; gap: 16px; color: #eafaef;
+  }
+  .strip .check { width: 34px; height: 34px; border-radius: 50%; background: #2ea44f; color:#fff; font-size: 20px; font-weight: 800; display:flex; align-items:center; justify-content:center; flex:none; }
+  .strip .msg { font-size: 20px; line-height: 1.35; }
+  .strip .msg b { color: #7fe0a0; }
+  .strip .brand { margin-left: auto; text-align: right; font-size: 15px; color: #9fb7a8; }
+</style>
+</head>
+<body>
+  <div class="eyebrow">Self-hosted automation &middot; Local AI</div>
+  <div class="h1"><h1 style="display:inline">AI Email Triage</h1><small>the flow, end to end</small></div>
+
+  <div class="pipe">
+    <div class="card" style="--c:#0a66c2">
+      <div class="ic">&#128229;</div>
+      <h2>Sample inbox</h2>
+      <p>Unread mail, no real data</p>
+      <span class="count">6 emails</span>
+    </div>
+    <div class="arrow">&#8594;</div>
+
+    <div class="card" style="--c:#7a5cff">
+      <div class="ic">&#129302;</div>
+      <h2>AI classify</h2>
+      <p>Local model, structured JSON</p>
+      <span class="count">qwen3:8b</span>
+    </div>
+    <div class="arrow">&#8594;</div>
+
+    <div class="card" style="--c:#e0673b">
+      <div class="ic">&#128737;&#65039;</div>
+      <h2>Decide + guardrails</h2>
+      <p>Map to label, safety rules</p>
+      <span class="count">6 sorted</span>
+    </div>
+    <div class="arrow">&#8594;</div>
+
+    <div class="branch">
+      <div class="card mini" style="--c:#2ea44f">
+        <h2>&#127991;&#65039; Labeled and filed</h2>
+        <p>Support, sales, recruiter, newsletter</p>
+        <span class="count">4 labeled &middot; 1 read</span>
+      </div>
+      <div class="card mini" style="--c:#0a66c2">
+        <h2>&#128204; Left in the inbox</h2>
+        <p>Invoice and personal note (other)</p>
+        <span class="count">2 kept</span>
+      </div>
+    </div>
+    <div class="arrow">&#8594;</div>
+
+    <div class="card" style="--c:#1f2430; width:190px">
+      <div class="ic">&#128451;&#65039;</div>
+      <h2>Digest</h2>
+      <p>Totals by category</p>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="check">&#10003;</div>
+    <div class="msg">Verified running green on self-hosted n8n: <b>6 classified</b>, <b>4 labeled</b>, <b>1 marked read</b>, <b>2 left in the inbox</b>.</div>
+    <div class="brand">Built by Jesse Jolly<br>SFX Tech Innovation</div>
+  </div>
+</body>
+</html>

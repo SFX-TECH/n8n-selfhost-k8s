@@ -1,0 +1,297 @@
+{
+  "name": "AI Email Triage (local model)",
+  "nodes": [
+    {
+      "id": "n-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n-generate",
+      "name": "Generate sample inbox",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const SCHEMA = {\"type\": \"object\", \"properties\": {\"category\": {\"type\": \"string\", \"enum\": [\"product_support\", \"sales_lead\", \"recruiter\", \"newsletter\", \"other\"]}, \"confidence\": {\"type\": \"number\"}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"category\", \"confidence\", \"reason\"]};\nconst SYSTEM = \"You are an email triage assistant. Read the sender, subject, and preview, then classify the email into exactly one category:\\n- product_support: help requests, questions, bugs, or issues about a product or service, usually from customers.\\n- sales_lead: inbound prospects or sales inquiries, someone interested in hiring or buying services.\\n- recruiter: recruiter outreach, job opportunities, interview requests, or a hiring manager about a role.\\n- newsletter: bulk marketing mail only, such as newsletters, product announcements, and digests.\\n- other: everything else, including invoices, receipts, payment or account notifications, verification codes, and personal mail.\\nImportant: transactional and account emails such as invoices, receipts, and verification codes are NOT newsletters. When unsure between newsletter and other for a transactional email, choose other. Pick the single best category. Return the category, a confidence from 0 to 1, and a short reason.\";\n\n// Six fake, generic emails. No real people, addresses, or data. All domains are .example.\nconst inbox = [\n  { id: 'MSG-1', from: 'maria@acme-clients.example', subject: 'Cannot sign in after the latest update', preview: 'Since this morning my whole team is locked out of the dashboard and we have a deadline today.' },\n  { id: 'MSG-2', from: 'devon@northwind.example', subject: 'Interested in your automation services', preview: 'We are a 40 person team and want to automate our onboarding. Do you take on new clients this quarter?' },\n  { id: 'MSG-3', from: 'talent@brightpath.example', subject: 'Senior Automation Engineer opportunity', preview: 'I came across your profile and think you would be a strong fit for a role with one of our clients.' },\n  { id: 'MSG-4', from: 'news@devweekly.example', subject: 'This week in automation: 12 tools to try', preview: 'Your weekly digest of the best automation reads, tools, and tutorials, hand picked for you.' },\n  { id: 'MSG-5', from: 'billing@cloudhost.example', subject: 'Your invoice is available', preview: 'Invoice 4821 for your monthly plan is ready to view in your account. No action is needed.' },\n  { id: 'MSG-6', from: 'sam@personalmail.example', subject: 'Photos from the weekend', preview: 'Hey, sending over the pictures from Saturday. It was so good to see you and the kids, let us not wait so long next time.' }\n];\n\nreturn inbox.map(e => ({ json: {\n  emailId: e.id, from: e.from, subject: e.subject, preview: e.preview,\n  ollamaBody: {\n    model: 'qwen3:8b', stream: false, think: false, options: { temperature: 0.1 },\n    messages: [\n      { role: 'system', content: SYSTEM },\n      { role: 'user', content: ('From: ' + e.from + '. Subject: ' + e.subject + '. Preview: ' + e.preview) }\n    ],\n    format: SCHEMA\n  }\n}}));"
+      }
+    },
+    {
+      "id": "n-http",
+      "name": "AI classify (Ollama qwen3:8b)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        180,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/chat",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.ollamaBody) }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "n-decide",
+      "name": "Decide and route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const emails = $('Generate sample inbox').all();\n// category -> Gmail label name. 'other' means leave the message in the inbox, untouched.\nconst targets = { product_support: 'Product Support', sales_lead: 'Sales Leads', recruiter: 'Recruiters', newsletter: 'Newsletters', other: null };\nreturn $input.all().map((item, i) => {\n  let ai = {};\n  try { ai = JSON.parse(item.json.message.content); }\n  catch (e) { ai = { category: 'other', confidence: 0, reason: 'parse_failed' }; }\n  const e = emails[i].json;\n  let category = String(ai.category || 'other');\n  const conf = Number(ai.confidence || 0);\n  const subject = e.subject || '';\n  // Guardrail 1: transactional or account mail is never a newsletter, so it is never auto marked read.\n  if (category === 'newsletter' && /(invoice|receipt|payment|purchase|verification code|sign in|password|statement|order number)/i.test(subject)) category = 'other';\n  // Guardrail 2: low confidence falls back to a safe bucket for a human to review.\n  if (conf < 0.5) category = 'other';\n  const labelName = targets[category] || null;\n  const wouldLabel = !!labelName;\n  const wouldMarkRead = category === 'newsletter';\n  let action = 'left in inbox';\n  if (wouldLabel && wouldMarkRead) action = 'label + mark read';\n  else if (wouldLabel) action = 'label';\n  return { json: {\n    emailId: e.emailId, from: e.from, subject: e.subject,\n    category, confidence: conf, reason: String(ai.reason || ''),\n    labelName: labelName || '(none)', wouldLabel, wouldMarkRead, action\n  }};\n});"
+      }
+    },
+    {
+      "id": "n-if",
+      "name": "Label it?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        620,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-label",
+              "leftValue": "={{ $json.wouldLabel }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n-apply",
+      "name": "Apply label (demo)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        860,
+        160
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-applied",
+              "name": "applied_label",
+              "value": "={{ $json.labelName }}",
+              "type": "string"
+            },
+            {
+              "id": "set-status-a",
+              "name": "status",
+              "value": "Would apply label in Gmail",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "n-leave",
+      "name": "Leave in inbox (demo)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        860,
+        440
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-applied-n",
+              "name": "applied_label",
+              "value": "(none)",
+              "type": "string"
+            },
+            {
+              "id": "set-status-l",
+              "name": "status",
+              "value": "Left in inbox for review",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "n-merge",
+      "name": "Merge routes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1080,
+        300
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      }
+    },
+    {
+      "id": "n-summary",
+      "name": "Summary digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rows = $('Merge routes').all().map(i => i.json);\nconst byCategory = {};\nlet labeled = 0, markedRead = 0;\nfor (const r of rows) {\n  byCategory[r.category] = (byCategory[r.category] || 0) + 1;\n  if (r.wouldLabel) labeled++;\n  if (r.wouldMarkRead) markedRead++;\n}\nconst fmt = Object.entries(byCategory).map(([k, v]) => k + '=' + v).join(', ');\nconst digest = 'Triaged ' + rows.length + ' emails. Would label ' + labeled + ', would mark read ' + markedRead + '. By category [' + fmt + '].';\nreturn [{ json: { total_emails: rows.length, would_label: labeled, would_mark_read: markedRead, by_category: byCategory, digest } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate sample inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate sample inbox": {
+      "main": [
+        [
+          {
+            "node": "AI classify (Ollama qwen3:8b)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI classify (Ollama qwen3:8b)": {
+      "main": [
+        [
+          {
+            "node": "Decide and route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide and route": {
+      "main": [
+        [
+          {
+            "node": "Label it?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label it?": {
+      "main": [
+        [
+          {
+            "node": "Apply label (demo)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leave in inbox (demo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply label (demo)": {
+      "main": [
+        [
+          {
+            "node": "Merge routes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leave in inbox (demo)": {
+      "main": [
+        [
+          {
+            "node": "Merge routes",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge routes": {
+      "main": [
+        [
+          {
+            "node": "Summary digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
