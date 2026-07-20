@@ -6,7 +6,7 @@
 [![validate](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/validate.yml/badge.svg)](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/validate.yml)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-queue%20mode-3b5bdb?logo=kubernetes&logoColor=white)](k8s/)
 [![Docker Compose](https://img.shields.io/badge/Docker%20Compose-ready-000000?logo=docker&logoColor=white)](docker-compose.yml)
-[![Built with n8n](https://img.shields.io/badge/built%20with-n8n%202.27-7a5cff?logo=n8n&logoColor=white)](https://n8n.io)
+[![Built with n8n](https://img.shields.io/badge/built%20with-n8n-7a5cff?logo=n8n&logoColor=white)](https://n8n.io)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Jesse%20Jolly-0a66c2?logo=linkedin&logoColor=white)](https://linkedin.com/in/jessegjolly)
 
 A hands-on reference for running [n8n](https://n8n.io) yourself, two ways:
@@ -28,6 +28,24 @@ a horizontally scaled Kubernetes deployment.
 
 ---
 
+## Contents
+
+- [What this demonstrates](#what-this-demonstrates)
+- [Architecture](#architecture)
+- [Example workflow: AI Support Triage](#example-workflow-ai-support-triage)
+- [Example workflow: AI Email Triage](#example-workflow-ai-email-triage-local-model)
+- [What is queue mode, and why workers and Redis?](#what-is-queue-mode-and-why-workers-and-redis)
+- [Tech](#tech)
+- [Repo layout](#repo-layout)
+- [Quickstart: Docker Compose](#quickstart-docker-compose)
+- [Quickstart: Kubernetes (queue mode)](#quickstart-kubernetes-queue-mode)
+- [Troubleshooting](#troubleshooting)
+- [Status](#status)
+- [Security and secrets](#security-and-secrets)
+- [License](#license)
+
+---
+
 ## What this demonstrates
 
 > **In plain terms:** A quick list of what the project proves it can do, from keeping your saved work safe when programs restart, to handling more jobs by adding more helpers, to keeping passwords and keys out of the shared code.
@@ -42,52 +60,6 @@ a horizontally scaled Kubernetes deployment.
   worker picking up the job.
 - Secret hygiene: the encryption key and database password are generated locally
   and never committed. Only `.example` files are in git.
-
----
-
-## Example workflow: AI Support Triage
-
-> **In plain terms:** A working example you can try. It reads a batch of support tickets, uses an AI model running on your own computer to sort and label each one, sends the urgent ones down one path and the rest down another, and records what it did. Nothing is sent to an outside company.
-
-A real, runnable workflow built and executed on this stack. It reads a batch of
-incoming support tickets, uses a local AI model to classify each one (topic,
-urgency, customer mood, the owning team, and a drafted first reply), routes
-urgent or unhappy tickets to an escalation path and the rest to an auto-draft
-path, logs every result to a built-in n8n Data Table, and prints a digest. On
-the Kubernetes instance it runs in queue mode, so a worker pod executes it and
-calls the local model.
-
-![AI Support Triage running green on the self-hosted Kubernetes n8n](assets/workflow-support-triage-green.png)
-
-The AI step calls a local model through [Ollama](https://ollama.com) (verified
-with `qwen3:8b`) using structured JSON output, so no data leaves the machine and
-there are no external API keys. The full walkthrough, import steps, and the
-exportable workflow JSON are in
-[`examples/support-triage/`](examples/support-triage/), and a plain-English
-overview is in [the infographic](assets/infographic-support-triage.png).
-
----
-
-## Example workflow: AI Email Triage (local model)
-
-> **In plain terms:** A second working example. It reads a batch of emails, uses an AI model running on your own computer to decide what each one is (support, a sales lead, a recruiter, a newsletter, or personal), and files it under the right label. Newsletters get marked read, and anything the model is unsure about is left alone for a human. Nothing is sent to an outside company.
-
-A runnable workflow that triages an inbox with a local AI model. It reads the
-sender, subject, and preview of each message, classifies it into one of five
-categories, and routes it: mail that earns a label goes down a "label it" path,
-and the rest is left in the inbox for review. The interesting part is the safety
-layer. Instead of trusting the model, a decision step enforces two deterministic
-guardrails, so transactional mail like invoices is never treated as a newsletter,
-and low-confidence guesses fall back to a safe bucket rather than acting on a hunch.
-
-![The AI Email Triage flow, verified running green on the self-hosted n8n](assets/workflow-email-triage-green.png)
-
-The sample inbox is fake and generic, so the example runs green with no mailbox
-connection and no data. It is the data-free version of a private inbox assistant;
-the full walkthrough, the guardrail explanation, the import steps, and the steps
-to point it at a real Gmail account are in
-[`examples/email-triage/`](examples/email-triage/), and a plain-English overview is
-in [the infographic](assets/infographic-email-triage.png).
 
 ---
 
@@ -157,6 +129,52 @@ worker pods.
 
 ---
 
+## Example workflow: AI Support Triage
+
+> **In plain terms:** A working example you can try. It reads a batch of support tickets, uses an AI model running on your own computer to sort and label each one, sends the urgent ones down one path and the rest down another, and records what it did. Nothing is sent to an outside company.
+
+A real, runnable workflow built and executed on this stack. It reads a batch of
+incoming support tickets, uses a local AI model to classify each one (topic,
+urgency, customer mood, the owning team, and a drafted first reply), routes
+urgent or unhappy tickets to an escalation path and the rest to an auto-draft
+path, logs every result to a built-in n8n Data Table, and prints a digest. On
+the Kubernetes instance it runs in queue mode, so a worker pod executes it and
+calls the local model.
+
+![AI Support Triage running green on the self-hosted Kubernetes n8n](assets/workflow-support-triage-green.png)
+
+The AI step calls a local model through [Ollama](https://ollama.com) (verified
+with `qwen3:8b`) using structured JSON output, so no data leaves the machine and
+there are no external API keys. The full walkthrough, import steps, and the
+exportable workflow JSON are in
+[`examples/support-triage/`](examples/support-triage/), and a plain-English
+overview is in [the infographic](assets/infographic-support-triage.png).
+
+---
+
+## Example workflow: AI Email Triage (local model)
+
+> **In plain terms:** A second working example. It reads a batch of emails, uses an AI model running on your own computer to decide what each one is (support, a sales lead, a recruiter, a newsletter, or personal), and files it under the right label. Newsletters get marked read, and anything the model is unsure about is left alone for a human. Nothing is sent to an outside company.
+
+A runnable workflow that triages an inbox with a local AI model. It reads the
+sender, subject, and preview of each message, classifies it into one of five
+categories, and routes it: mail that earns a label goes down a "label it" path,
+and the rest is left in the inbox for review. The interesting part is the safety
+layer. Instead of trusting the model, a decision step enforces two deterministic
+guardrails, so transactional mail like invoices is never treated as a newsletter,
+and low-confidence guesses fall back to a safe bucket rather than acting on a hunch.
+
+![The AI Email Triage flow, verified running green on the self-hosted n8n](assets/workflow-email-triage-green.png)
+
+The sample inbox is fake and generic, so the example runs green with no mailbox
+connection and no data. It is the data-free version of a private inbox assistant;
+the full walkthrough, the guardrail explanation, the import steps, and the steps
+to point it at a real Gmail account are in
+[`examples/email-triage/`](examples/email-triage/), and a plain-English overview is
+in [the infographic](assets/infographic-email-triage.png).
+
+---
+
 ## Tech
 
 > **In plain terms:** The exact tools and version numbers used, so an engineer can see what is under the hood at a glance.
@@ -206,7 +224,7 @@ worker pods.
 
 ---
 
-## What is queue mode, and why workers + Redis?
+## What is queue mode, and why workers and Redis?
 
 > **In plain terms:** A deeper explanation of the main idea. Instead of one program doing everything, the work is split so the screen stays quick to use while a changing number of helpers work through the jobs in the background.
 
