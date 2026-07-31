@@ -207,7 +207,7 @@ picked up the job. HPA proven with `kubectl get hpa -w`.
 - [x] Phase 0: git init, pull current docs, sketch architecture (this file).
 - [x] Phase 1: compose up (all healthy), owner setup + test workflow created,
       proven to survive a full `docker compose down` + `up -d` recreate via
-      Postgres query, Redis PING -> PONG. n8n pinned to 2.27.5.
+      Postgres query, Redis PING -> PONG. n8n pinned to 2.32.7.
 - [x] Phase 2: Docker Desktop Kubernetes was already enabled (context docker-desktop,
       node Ready). Applied all manifests with `kubectl apply -k k8s/`. Hit and fixed
       a migration race (main vs workers on empty DB) with a worker initContainer that
@@ -215,14 +215,29 @@ picked up the job. HPA proven with `kubectl get hpa -w`.
       avoid a first-boot DNS restart. All 5 pods Running with 0 restarts. Ran a test
       workflow, proved a worker pod executed it (Worker started/finished execution 1).
       Scaled workers 2->4->2. Installed + patched metrics-server (--kubelet-insecure-tls);
-      HPA reads live CPU (cpu: 1%/50%, ScalingActive=True). n8n pinned to 2.27.5.
+      HPA reads live CPU (cpu: 1%/50%, ScalingActive=True). n8n pinned to 2.32.7.
 - [x] Phase 3: strong README (both quickstarts, queue mode explained, troubleshooting),
       em/en dash audit (clean), .gitignore audit (.env and k8s/02-secret.yaml ignored),
       published public to https://github.com/SFX-TECH/n8n-selfhost-k8s with topics.
+- [x] Phase 4: end-to-end CI. Added .github/workflows/e2e.yml with a compose-smoke
+      job (boot the stack, assert /healthz + Redis PONG + Postgres migrations ran)
+      and a k8s-smoke job that stands up the full queue-mode stack on an ephemeral
+      kind cluster (helm/kind-action pinned to the v1.14.0 commit SHA) and asserts
+      main /healthz, >=2 workers Ready, and the HPA object. Bumped n8n 2.27.5 ->
+      2.32.7. Verified locally (isolated Compose on a spare port + a real kind
+      cluster) so it did not spend CI minutes.
+- [x] Phase 5: observability. Enabled n8n's built-in Prometheus metrics
+      (N8N_METRICS + queue metrics; the richer webhook/scheduler metrics need 2.28+,
+      hence the bump). Added kube-state-metrics (namespaced, read-only RBAC), a lean
+      Prometheus (two scrape jobs, no operator, no CRDs), and Grafana with a
+      provisioned 3-lane dashboard: queue depth -> worker CPU -> worker replicas.
+      Verified on kind: all 4 scrape targets UP, n8n queue series + KSM replica
+      series present, Grafana serves the dashboard. Community-first: reused
+      maintained upstream images (KSM v2.19.1, Prometheus v3.13.2, Grafana 13.1.1).
 
 ## 7. Decisions / gotchas worth keeping
 
-- n8n is on 2.x (2.27.5). N8N_BASIC_AUTH_* is gone (user management instead).
+- n8n is on 2.x (2.32.7). N8N_BASIC_AUTH_* is gone (user management instead).
   N8N_RUNNERS_ENABLED is deprecated in 2.x (runners always on); removed it.
 - Queue-mode migration race is the big one: workers must not run initial
   migrations concurrently with main. Gate workers on main /healthz.

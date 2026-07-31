@@ -1,0 +1,198 @@
+# Grafana: one small dashboard that tells the queue-mode story on a shared
+# time axis:  demand (queue depth)  ->  worker CPU  ->  worker replicas (HPA).
+# Stock upstream image, provisioned datasource + dashboard, anonymous VIEW-only
+# access so the demo stays secret-free. Reachable at http://localhost:30300.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: n8n
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: n8n-selfhost
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: n8n
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: n8n-selfhost
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: n8n
+        orgId: 1
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-n8n
+  namespace: n8n
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: n8n-selfhost
+data:
+  n8n-queue-scaling.json: |
+    {
+      "uid": "n8n-queue-scaling",
+      "title": "n8n Queue Mode: demand vs worker scaling",
+      "tags": ["n8n", "queue", "autoscaling"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "5s",
+      "time": {"from": "now-15m", "to": "now"},
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Demand: queue depth (jobs waiting / active)",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 20}}, "overrides": []},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "n8n_scaling_mode_queue_jobs_waiting", "legendFormat": "waiting"},
+            {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "n8n_scaling_mode_queue_jobs_active", "legendFormat": "active"}
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Worker CPU (cores, per pod)",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum by (pod) (rate(n8n_process_cpu_seconds_total{app=\"n8n-worker\"}[1m]))", "legendFormat": "{{pod}}"}
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Supply: worker replicas (deployment vs HPA)",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "stepAfter", "fillOpacity": 10}}, "overrides": []},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_status_replicas{deployment=\"n8n-worker\"}", "legendFormat": "current replicas"},
+            {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler=\"n8n-worker\"}", "legendFormat": "HPA current"},
+            {"refId": "C", "datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_horizontalpodautoscaler_spec_max_replicas{horizontalpodautoscaler=\"n8n-worker\"}", "legendFormat": "HPA max"}
+          ]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: n8n
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: n8n-selfhost
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+        app.kubernetes.io/part-of: n8n-selfhost
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:13.1.1
+          env:
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Admin"
+            - name: GF_AUTH_DISABLE_LOGIN_FORM
+              value: "true"
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: storage
+              mountPath: /var/lib/grafana
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboard-n8n
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: n8n
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: n8n-selfhost
+spec:
+  type: NodePort
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30300

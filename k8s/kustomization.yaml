@@ -15,3 +15,7 @@ resources:
   - 06-n8n-worker.yaml
   - 07-n8n-worker-hpa.yaml
   - 08-n8n-nodeport.yaml
+  # Observability (queue metrics + Prometheus + Grafana). No CRDs, no operator.
+  - 10-kube-state-metrics.yaml
+  - 11-prometheus.yaml
+  - 12-grafana.yaml

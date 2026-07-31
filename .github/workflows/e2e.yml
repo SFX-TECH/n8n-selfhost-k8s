@@ -1,0 +1,123 @@
+name: e2e
+
+# End-to-end smoke tests that actually STAND UP the stack, not just lint it.
+#   1. compose-smoke: boot the Docker Compose stack and prove n8n is healthy,
+#      Redis answers, and Postgres migrated (workflow_entity exists).
+#   2. k8s-smoke: create an ephemeral kind cluster, deploy the queue-mode stack,
+#      and prove the topology comes up green (postgres, main, 2 workers ready,
+#      HPA present) with no CrashLoops.
+# The AI example workflows are intentionally NOT executed here: they call a local
+# Ollama model that does not exist on a GitHub runner. This proves the platform,
+# the static validation lives in validate.yml.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-smoke:
+    name: Docker Compose smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Create .env with generated secrets
+        run: |
+          cp .env.example .env
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" .env
+          sed -i "s|^N8N_ENCRYPTION_KEY=.*|N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)|" .env
+
+      - name: Bring up the stack
+        run: docker compose up -d
+
+      - name: Wait for n8n to become healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:5678/healthz >/dev/null 2>&1; then
+              echo "n8n /healthz is green"; exit 0
+            fi
+            echo "waiting for n8n... ($i/30)"; sleep 5
+          done
+          echo "n8n did not become healthy in time"; exit 1
+
+      - name: Assert services and migrations
+        run: |
+          echo "== n8n /healthz ==";    curl -fsS http://localhost:5678/healthz; echo
+          echo "== redis ping ==";      docker compose exec -T redis redis-cli ping | grep -q PONG
+          echo "== postgres reachable =="; docker compose exec -T postgres psql -U n8n -d n8n -c "select 1;" >/dev/null
+          echo "== migrations ran (workflow_entity exists) =="; \
+            docker compose exec -T postgres psql -U n8n -d n8n -c "select count(*) from workflow_entity;" >/dev/null
+          echo "compose smoke: OK"
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose ps && docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  k8s-smoke:
+    name: Kubernetes queue-mode smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Create kind cluster
+        # Pinned to the v1.14.0 commit SHA (supply-chain hygiene), not a floating tag.
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          version: v0.31.0
+          kubectl_version: v1.35.0
+          cluster_name: n8n-e2e
+          wait: 120s
+
+      - name: Generate the n8n Secret (git-ignored locally, ephemeral in CI)
+        run: |
+          export N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)
+          export POSTGRES_PASSWORD=$(openssl rand -hex 16)
+          ./k8s/generate-secret.sh
+
+      - name: Deploy the queue-mode stack
+        run: kubectl apply -k k8s/
+
+      - name: Wait for pods (postgres, then main migrates, then workers)
+        run: |
+          kubectl wait --for=condition=ready pod -l app=postgres  -n n8n --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=n8n-main   -n n8n --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=n8n-worker -n n8n --timeout=240s
+
+      - name: Assert topology and health
+        run: |
+          kubectl get pods -n n8n -o wide
+          echo "== no CrashLoopBackOff =="
+          if kubectl get pods -n n8n -o jsonpath='{.items[*].status.containerStatuses[*].state.waiting.reason}' | grep -q CrashLoopBackOff; then
+            echo "CrashLoopBackOff detected"; exit 1
+          fi
+          echo "== main /healthz green =="
+          kubectl exec -n n8n deploy/n8n-main -- \
+            node -e "require('http').get('http://localhost:5678/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+          echo "== at least 2 workers ready =="
+          ready=$(kubectl get pods -n n8n -l app=n8n-worker \
+            -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' | grep -c True)
+          echo "workers ready: $ready"; test "$ready" -ge 2
+          echo "== HPA object present =="
+          kubectl get hpa n8n-worker -n n8n
+          echo "k8s smoke: OK"
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get all -n n8n -o wide || true
+          kubectl describe pods -n n8n || true
+          kubectl logs -n n8n -l app=n8n-main --tail=120 --prefix || true
+          kubectl logs -n n8n -l app=n8n-worker --tail=120 --prefix || true

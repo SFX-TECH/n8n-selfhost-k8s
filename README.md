@@ -4,9 +4,10 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 [![validate](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/validate.yml/badge.svg)](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/validate.yml)
+[![e2e](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/e2e.yml/badge.svg)](https://github.com/SFX-TECH/n8n-selfhost-k8s/actions/workflows/e2e.yml)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-queue%20mode-3b5bdb?logo=kubernetes&logoColor=white)](k8s/)
 [![Docker Compose](https://img.shields.io/badge/Docker%20Compose-ready-000000?logo=docker&logoColor=white)](docker-compose.yml)
-[![Built with n8n](https://img.shields.io/badge/built%20with-n8n%202.27-7a5cff?logo=n8n&logoColor=white)](https://n8n.io)
+[![Built with n8n](https://img.shields.io/badge/built%20with-n8n%202.32-7a5cff?logo=n8n&logoColor=white)](https://n8n.io)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Jesse%20Jolly-0a66c2?logo=linkedin&logoColor=white)](https://linkedin.com/in/jessegjolly)
 
 A hands-on reference for running [n8n](https://n8n.io) yourself, two ways:
@@ -20,7 +21,7 @@ The repo is intentionally generic and secret-free. It exists to show the moving
 parts of a real n8n self-host and how the same stack grows from one container to
 a horizontally scaled Kubernetes deployment.
 
-> Built and verified against **n8n 2.27.5**, Postgres 16, and Redis 7, on Docker
+> Built and verified against **n8n 2.32.7**, Postgres 16, and Redis 7, on Docker
 > Desktop's built-in Kubernetes (v1.34). Docs were pulled from the current
 > official n8n documentation rather than from memory.
 
@@ -42,6 +43,12 @@ a horizontally scaled Kubernetes deployment.
   worker picking up the job.
 - Secret hygiene: the encryption key and database password are generated locally
   and never committed. Only `.example` files are in git.
+- End to end CI, not just linting: a GitHub Actions workflow boots the Compose
+  stack and stands up the full queue-mode stack on an ephemeral Kubernetes (kind)
+  cluster on every push, proving it actually runs, not just that the YAML is valid.
+- Observability for the autoscaling story: n8n's built-in Prometheus metrics,
+  scraped by an in-cluster Prometheus, with a Grafana dashboard that puts queue
+  depth, worker CPU, and worker replicas on one time axis. No operator, no CRDs.
 
 ---
 
@@ -163,14 +170,15 @@ worker pods.
 
 | Layer | Stack |
 |---|---|
-| Automation | n8n 2.27.5, self-hosted |
+| Automation | n8n 2.32.7, self-hosted |
 | Database | PostgreSQL 16 (durable state, required for queue mode) |
 | Queue and broker | Redis 7 (Bull queue) |
 | Single host | Docker Compose v2, health checks, ordered startup, named volumes |
 | Orchestration | Kubernetes 1.34 (Deployments, StatefulSet, Services, NodePort, optional Ingress) |
 | Scaling | n8n queue mode: main plus autoscaled workers via a HorizontalPodAutoscaler (2 to 5) |
 | Config and secrets | ConfigMap plus a locally generated Secret (never committed) |
-| CI | GitHub Actions: docker compose config, yamllint, kubeconform |
+| CI | GitHub Actions: static validation (compose config, yamllint, kubeconform) plus an e2e smoke that boots Compose and a kind cluster |
+| Observability | n8n Prometheus metrics, kube-state-metrics, Prometheus, Grafana (provisioned dashboard) |
 
 ---
 

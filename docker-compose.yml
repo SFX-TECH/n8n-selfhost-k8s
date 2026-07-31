@@ -42,7 +42,7 @@ services:
       - n8n-net
 
   n8n:
-    image: docker.n8n.io/n8nio/n8n:2.27.5
+    image: docker.n8n.io/n8nio/n8n:2.32.7
     restart: unless-stopped
     depends_on:
       postgres:
@@ -92,7 +92,7 @@ services:
   # Optional worker for running Compose in queue mode.
   # Enable with:  docker compose --profile queue up -d   (and EXECUTIONS_MODE=queue in .env)
   n8n-worker:
-    image: docker.n8n.io/n8nio/n8n:2.27.5
+    image: docker.n8n.io/n8nio/n8n:2.32.7
     restart: unless-stopped
     profiles: ["queue"]
     command: ["worker", "--concurrency=5"]

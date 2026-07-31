@@ -38,7 +38,7 @@ spec:
               echo "n8n main is ready"
       containers:
         - name: n8n-worker
-          image: docker.n8n.io/n8nio/n8n:2.27.5
+          image: docker.n8n.io/n8nio/n8n:2.32.7
           # The image entrypoint runs `n8n <args>`, so this becomes `n8n worker`.
           args: ["worker", "--concurrency=5"]
           ports:

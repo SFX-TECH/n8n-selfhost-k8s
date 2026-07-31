@@ -37,3 +37,13 @@ data:
   N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
   GENERIC_TIMEZONE: Etc/UTC
   TZ: Etc/UTC
+
+  # --- Metrics / observability ---
+  # n8n serves a Prometheus /metrics endpoint on the same 5678 port, on the main
+  # AND every worker. Scrape it IN-CLUSTER only (via the ClusterIP Service); never
+  # expose /metrics on a public Ingress.
+  N8N_METRICS: "true"
+  N8N_METRICS_INCLUDE_QUEUE_METRICS: "true"       # queue depth / active / completed / failed
+  N8N_METRICS_QUEUE_METRICS_INTERVAL: "5"         # seconds (default 20); snappier for the demo
+  N8N_METRICS_INCLUDE_WEBHOOK_METRICS: "true"     # requires n8n 2.28+ (pinned 2.32.7)
+  N8N_METRICS_INCLUDE_SCHEDULER_METRICS: "true"   # requires n8n 2.28+
