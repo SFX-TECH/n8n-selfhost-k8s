@@ -34,6 +34,7 @@ a horizontally scaled Kubernetes deployment.
 - [Architecture](#architecture)
 - [Example workflow: AI Support Triage](#example-workflow-ai-support-triage)
 - [Example workflow: AI Email Triage](#example-workflow-ai-email-triage-local-model)
+- [From examples to real use: a live operations mesh](#from-examples-to-real-use-a-live-operations-mesh)
 - [What is queue mode, and why workers and Redis?](#what-is-queue-mode-and-why-workers-and-redis)
 - [Tech](#tech)
 - [Repo layout](#repo-layout)
@@ -115,17 +116,21 @@ flowchart LR
         end
     end
 
+    OL["Local model host<br/>Ollama (qwen3)<br/>no cloud, no API keys"]
+
     U -->|"NodePort 30678"| M
     M -->|"1. enqueue job"| R
     R -->|"2. workers pull jobs"| WK
     WK -->|"3. write results"| PG
     M <-->|"read and write"| PG
+    WK -. "4. AI steps call local model<br/>host.docker.internal:11434" .-> OL
 ```
 
 The main process owns the UI, REST API, webhooks, and schedule triggers. It does
 not run executions itself; it enqueues them to Redis. Worker pods pull jobs off
 Redis, run them, and write results to Postgres. Scaling executions means scaling
-worker pods.
+worker pods. When a workflow has an AI step, the worker calls a local model over
+Ollama on the host, so inference stays on the machine with no external API keys.
 
 ---
 
@@ -172,6 +177,78 @@ the full walkthrough, the guardrail explanation, the import steps, and the steps
 to point it at a real Gmail account are in
 [`examples/email-triage/`](examples/email-triage/), and a plain-English overview is
 in [the infographic](assets/infographic-email-triage.png).
+
+---
+
+## From examples to real use: a live operations mesh
+
+> **In plain terms:** The two workflows above are not just toys. This same
+> self-hosted setup, with the AI running on my own machine, quietly runs the back
+> office for my company: it watches for billing problems, drafts support replies
+> for me to approve, and checks that software releases actually went out. It never
+> hits send on its own, and it does not use any paid cloud AI. A person always has
+> the final say.
+
+The Support Triage and Email Triage examples are the generic, data-free versions
+of a real operations mesh I run on this exact stack: n8n self-hosted in Docker,
+with every AI step on a **local Ollama model** (`qwen3`), no cloud inference and
+no external API keys. Described at the capability level, it runs three agents plus
+always-on triage:
+
+- **Billing sentinel.** Classifies vendor payment and billing issues into a strict
+  JSON schema, weighted by a vendor-criticality table and the age of the message,
+  with an audit trail. It files a critical task at most once per message id, so a
+  repeated alert never becomes a duplicate.
+- **Support draft assistant.** Grounds every reply on the live product version, the
+  support page, and the changelog, then a deterministic lint gate rejects em
+  dashes, off-domain links, wrong version numbers, and over-length copy **before**
+  the text becomes a Gmail draft. It writes a draft for a human to review; it never
+  sends.
+- **Release watcher (no AI).** Purely deterministic: it verifies the update feed's
+  CDN cache, sends HEAD requests to the installer and updater, and flags a winget
+  version lag or a stale pull request. Model judgment is deliberately kept out of a
+  release-integrity check.
+
+Plus always-on email triage and a lead-generation flow that was **migrated off a
+paid cloud API onto the local model**, which took the per-run inference cost to
+zero.
+
+> **In plain terms:** The picture below shows the shape every agent shares.
+> Something comes in, the local AI (or plain code) reads it, strict rules check the
+> result, and the outcome is always a draft, a label, or a task on a list, never an
+> action taken without a person.
+
+```mermaid
+flowchart LR
+    IN["Inbound signal<br/>vendor mail, ticket,<br/>release feed, lead"]
+    AI["Local model step<br/>Ollama qwen3<br/>structured JSON output"]
+    G{"Deterministic<br/>guardrails<br/>schema + lint + dedupe"}
+    HL["Human-in-the-loop output<br/>Gmail draft, label,<br/>task in the queue"]
+    REV["Held for review<br/>low confidence or<br/>failed a rule"]
+
+    IN --> AI --> G
+    G -->|"passes"| HL
+    G -->|"fails or unsure"| REV
+```
+
+The patterns are the same ones the public examples demonstrate, and they are what
+make this safe to run unattended:
+
+- **Structured JSON output** from the model (Ollama's `format` schema), never free
+  text that has to be parsed loosely.
+- **Deterministic guardrails wrapping the model**, so a wrong guess is caught by
+  plain code before it can act (the same idea as the email-triage safety layer).
+- **Idempotency and dedupe** via n8n workflow static data, so the same event is
+  never actioned twice.
+- **Human-in-the-loop by design.** Every output is a draft, a label, or a task.
+  Nothing auto-sends.
+- **The no-dash house style is machine-enforced**, rejected by the support lint
+  gate rather than trusted to a reviewer.
+- A common digest contract, `{ agent, severity, headline, body_md, dedupe_key }`,
+  so every agent reports in the same shape.
+
+No client identities, no message contents, and no credentials are described here or
+in this repo. This section documents the capability and the safety pattern only.
 
 ---
 
@@ -491,6 +568,11 @@ Both stacks are built and verified end to end:
   Email Triage, sorts an inbox with the same local model and adds deterministic
   safety guardrails so a wrong guess never takes the wrong action
   ([`examples/email-triage/`](examples/email-triage/)).
+- **Real use:** this same stack runs a live operations mesh (billing sentinel,
+  support draft assistant, deterministic release watcher, plus email triage and
+  local-model lead-gen) in my own back office, all on a local Ollama model and all
+  human-in-the-loop, described at the capability level in
+  [the operations mesh section](#from-examples-to-real-use-a-live-operations-mesh).
 - **CI:** GitHub Actions validates the compose file and the Kubernetes manifests
   on every push and pull request.
 
