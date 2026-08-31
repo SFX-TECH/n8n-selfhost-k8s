@@ -219,6 +219,27 @@ picked up the job. HPA proven with `kubectl get hpa -w`.
 - [x] Phase 3: strong README (both quickstarts, queue mode explained, troubleshooting),
       em/en dash audit (clean), .gitignore audit (.env and k8s/02-secret.yaml ignored),
       published public to https://github.com/SFX-TECH/n8n-selfhost-k8s with topics.
+- [x] Refresh 2026-08 (showcase-refresh-2026-08): added the "From examples to real use:
+      a live operations mesh" README section (billing sentinel, support draft assistant,
+      deterministic release watcher, email triage, local-model lead-gen), capability level
+      only, no client data. Added a Mermaid flow for the mesh (inbound -> local model ->
+      guardrails -> human-in-the-loop). Added the local Ollama host to the Kubernetes
+      architecture Mermaid diagram. Linked the mesh from the Status section and the TOC.
+      Em/en dash audit rerun (clean).
+
+## Visuals to capture (TODO, do not fabricate)
+
+These would strengthen the operations-mesh section but must be captured by hand and
+sanitized (no client names, no message contents, no credentials) before committing:
+
+- [ ] A sanitized screenshot of one ops workflow running green in the live n8n (for
+      example the billing sentinel or the support draft assistant), with any real
+      vendor or customer text blurred or replaced.
+- [ ] A short GIF of the support draft assistant producing a Gmail DRAFT and the lint
+      gate rejecting a bad draft, to show the human-in-the-loop and guardrail behavior.
+- [ ] Optional: a screenshot of the local Command Center task list receiving a filed
+      task, cropped to remove anything client-identifying.
+  Store under assets/ and reference by relative path; keep files small.
 
 ## 7. Decisions / gotchas worth keeping
 
