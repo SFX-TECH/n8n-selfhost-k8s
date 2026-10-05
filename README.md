@@ -192,7 +192,7 @@ in [the infographic](assets/infographic-email-triage.png).
 The Support Triage and Email Triage examples are the generic, data-free versions
 of a real operations mesh I run on this exact stack: n8n self-hosted in Docker,
 with every AI step on a **local Ollama model** (`qwen3`), no cloud inference and
-no external API keys. Described at the capability level, it runs three agents plus
+no external API keys. Described at the capability level, it runs four agents plus
 always-on triage:
 
 - **Billing sentinel.** Classifies vendor payment and billing issues into a strict
@@ -208,6 +208,12 @@ always-on triage:
   CDN cache, sends HEAD requests to the installer and updater, and flags a winget
   version lag or a stale pull request. Model judgment is deliberately kept out of a
   release-integrity check.
+- **winget PR watcher (no AI).** Also fully deterministic, with no model and no
+  credentials: it runs a read-only search of Microsoft's public winget-pkgs
+  repository for the app's own submission pull requests, classifies each one by its
+  validation labels and whether it merged or closed, and flags a pull request that
+  needs attention, is still in validation, has gone live, or was closed without
+  merging. Release-integrity checks are deliberately kept free of model judgment.
 
 Plus always-on email triage and a lead-generation flow that was **migrated off a
 paid cloud API onto the local model**, which took the per-run inference cost to
@@ -547,6 +553,16 @@ kubectl delete namespace n8n        # removes everything, including PVC data
   NodePort demo. Use HTTPS in production instead.
 - **`N8N_RUNNERS_ENABLED` deprecation log.** n8n 2.x has task runners on by default,
   so this variable is no longer set here.
+- **A Gmail node fails with "Account Restricted."** This means Google has rejected the
+  account itself, for example a suspended Google Workspace subscription or an
+  account-level restriction, rather than an expired token, so reconnecting the OAuth
+  credential will not fix it. Check the Workspace admin console and the billing status
+  first, then reconnect the credential and re-run.
+- **A local-LLM classify step times out.** This usually means a large model running on
+  a CPU-only Ollama, or a cold model load that exceeds the node timeout. Route the step
+  to the GPU-backed Ollama, use the smaller model for classification, set keep_alive so
+  the model stays warm between runs, and size the node timeout to the measured
+  cold-load time.
 
 ---
 
@@ -569,9 +585,10 @@ Both stacks are built and verified end to end:
   safety guardrails so a wrong guess never takes the wrong action
   ([`examples/email-triage/`](examples/email-triage/)).
 - **Real use:** this same stack runs a live operations mesh (billing sentinel,
-  support draft assistant, deterministic release watcher, plus email triage and
-  local-model lead-gen) in my own back office, all on a local Ollama model and all
-  human-in-the-loop, described at the capability level in
+  support draft assistant, deterministic release and winget PR watchers, plus email
+  triage and local-model lead-gen) in my own back office, with every model step on a
+  local Ollama model and every agent human-in-the-loop, described at the capability
+  level in
   [the operations mesh section](#from-examples-to-real-use-a-live-operations-mesh).
 - **CI:** GitHub Actions validates the compose file and the Kubernetes manifests
   on every push and pull request.
